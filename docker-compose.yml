@@ -1,0 +1,87 @@
+services:
+  host-a:
+    image: postgres:16-alpine
+    container_name: host-a
+    hostname: host-a
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - ./data/a:/var/lib/postgresql/data 
+      - ./config/a:/etc/postgresql/config   
+    ports:
+      - "5433:5432"
+    networks:
+      - pgnet
+    restart: no
+
+  host-b:
+    image: postgres:16-alpine
+    container_name: host-b
+    hostname: host-b
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - ./data/b:/var/lib/postgresql/data
+      - ./config/b:/etc/postgresql/config
+    ports:
+      - "5434:5432"
+    networks:
+      - pgnet
+    restart: unless-stopped
+
+  host-c:
+    image: postgres:16-alpine
+    container_name: host-c
+    hostname: host-c
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - ./data/c:/var/lib/postgresql/data
+      - ./config/c:/etc/postgresql/config
+    ports:
+      - "5435:5432"
+    networks:
+      - pgnet
+    restart: unless-stopped
+
+  pgpool:
+    image: bitnamilegacy/pgpool:latest
+    container_name: pgpool
+    hostname: pgpool
+    environment:
+      PGPOOL_BACKEND_NODES: "0:host-a:5432,1:host-b:5432,2:host-c:5432"
+      PGPOOL_POSTGRES_USERNAME: postgres
+      PGPOOL_POSTGRES_PASSWORD: secret
+      PGPOOL_SR_CHECK_USER: postgres
+      PGPOOL_SR_CHECK_PASSWORD: secret
+      PGPOOL_HEALTH_CHECK_USER: postgres
+      PGPOOL_HEALTH_CHECK_PASSWORD: secret
+      PGPOOL_ADMIN_USERNAME: admin
+      PGPOOL_ADMIN_PASSWORD: admin
+      PGPOOL_SR_CHECK_PERIOD: 5
+      PGPOOL_ENABLE_WATCHDOG: "no"
+      PGPOOL_FAILOVER_ON_BACKEND_ERROR: "yes"
+    ports:
+      - "5432:5432"
+    networks:
+      - pgnet
+    restart: unless-stopped
+    depends_on:
+      - host-a
+      - host-b
+      - host-c
+  client:
+    image: postgres:16-alpine
+    container_name: client
+    hostname: client
+    networks:
+      - pgnet
+    entrypoint: ["sleep", "infinity"]
+    depends_on:
+      - pgpool
+networks:
+  pgnet:
+    driver: bridge
