@@ -1870,7 +1870,7 @@ docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d il
 ### 0проверим, что подключение через pgpool направлено на primary-узел.
 ```sh
 docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d illgreennews -c "SELECT inet_server_addr(), pg_is_in_recovery();"
-```sh
+```
 
 ```
  inet_server_addr | pg_is_in_recovery 
