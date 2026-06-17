@@ -685,6 +685,8 @@ docker compose up -d pgpool
  ✔ Container pgpool Started
 ```
 
+### проверка запущенных контейнеров
+
 ```sh
 docker compose ps
 ```
@@ -697,7 +699,7 @@ host-c    postgres:16-alpine            "docker-entrypoint.s…"   host-c    26 
 pgpool    bitnamilegacy/pgpool:latest   "/opt/bitnami/script…"   pgpool    23 minutes ago      Up 23 minutes      0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
 ```
 
-### тест подключения
+### тест подключения к pgpool
 
 ```sh
 docker exec -e PGPASSWORD=secret pgpool psql -U postgres -h localhost -p 5432 -c "SELECT 1;"
@@ -709,6 +711,8 @@ docker exec -e PGPASSWORD=secret pgpool psql -U postgres -h localhost -p 5432 -c
         1
 (1 row)
 ```
+
+### проверка узлов через pgpool
 
 ```sh
 docker exec -e PGPASSWORD=secret pgpool psql -U postgres -h localhost -p 5432 -c "SHOW POOL_NODES;"
@@ -905,8 +909,8 @@ docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d il
 ### проверим что данные появились на всех узлах
 
 ```sh
-docker exec host-a psql -U postgres -d illgreennews -c "SELECT * FROM articles ORDER BY id;"
-docker exec host-a psql -U postgres -d illgreennews -c "SELECT * FROM comments ORDER BY id;"
+docker exec -e PGPASSWORD=secret  host-a psql -U postgres -d illgreennews -c "SELECT * FROM articles ORDER BY id;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -d illgreennews -c "SELECT * FROM comments ORDER BY id;"
 ```
 
 ```
@@ -926,8 +930,8 @@ docker exec host-a psql -U postgres -d illgreennews -c "SELECT * FROM comments O
 ```
 
 ```sh
-docker exec host-b psql -U postgres -d illgreennews -c "SELECT * FROM articles ORDER BY id;"
-docker exec host-b psql -U postgres -d illgreennews -c "SELECT * FROM comments ORDER BY id;"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -d illgreennews -c "SELECT * FROM articles ORDER BY id;"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -d illgreennews -c "SELECT * FROM comments ORDER BY id;"
 ```
 
 ```
@@ -947,8 +951,8 @@ docker exec host-b psql -U postgres -d illgreennews -c "SELECT * FROM comments O
 ```
 
 ```sh
-docker exec host-c psql -U postgres -d illgreennews -c "SELECT * FROM articles ORDER BY id;"
-docker exec host-c psql -U postgres -d illgreennews -c "SELECT * FROM comments ORDER BY id;"
+docker exec -e PGPASSWORD=secret host-c psql -U postgres -d illgreennews -c "SELECT * FROM articles ORDER BY id;"
+docker exec- e PGPASSWORD=secret host-c psql -U postgres -d illgreennews -c "SELECT * FROM comments ORDER BY id;"
 ```
 
 ```
@@ -986,7 +990,7 @@ COMMIT
 ```
 
 ```sh
-docker exec host-a psql -U postgres -d illgreennews -c "SELECT id, title, content FROM articles ORDER BY id;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -d illgreennews -c "SELECT id, title, content FROM articles ORDER BY id;"
 ```
 
 ```
@@ -1000,7 +1004,7 @@ docker exec host-a psql -U postgres -d illgreennews -c "SELECT id, title, conten
 ```
 
 ```sh
-docker exec host-b psql -U postgres -d illgreennews -c "SELECT id, title, content FROM articles ORDER BY id;"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -d illgreennews -c "SELECT id, title, content FROM articles ORDER BY id;"
 ```
 
 ```
@@ -1014,7 +1018,7 @@ docker exec host-b psql -U postgres -d illgreennews -c "SELECT id, title, conten
 ```
 
 ```sh
-docker exec host-c psql -U postgres -d illgreennews -c "SELECT id, title, content FROM articles ORDER BY id;"
+docker exec -e PGPASSWORD=secret host-c psql -U postgres -d illgreennews -c "SELECT id, title, content FROM articles ORDER BY id;"
 ```
 
 ```
@@ -1028,7 +1032,7 @@ docker exec host-c psql -U postgres -d illgreennews -c "SELECT id, title, conten
 
 ```sh
 sleep 12
-docker exec host-c psql -U postgres -d illgreennews -c "SELECT id, title, content FROM articles ORDER BY id;"
+docker exec -e PGPASSWORD=secret  host-c psql -U postgres -d illgreennews -c "SELECT id, title, content FROM articles ORDER BY id;"
 ```
 
 ```
@@ -1061,10 +1065,9 @@ docker exec -it -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -
 illgreennews=# SELECT 'session_1' AS session, pg_backend_pid(), inet_server_addr(), pg_is_in_recovery();
 ```
 
-```
   session  | pg_backend_pid | inet_server_addr | pg_is_in_recovery 
 -----------+----------------+------------------+-------------------
- session_1 |            845 | 172.19.0.2       | f
+ session_1 |            777 | 172.19.0.5       | f
 (1 row)
 ```
 
@@ -1081,7 +1084,7 @@ illgreennews=# SELECT 'session_2' AS session, pg_backend_pid(), inet_server_addr
 ```
   session  | pg_backend_pid | inet_server_addr | pg_is_in_recovery 
 -----------+----------------+------------------+-------------------
- session_2 |            848 | 172.19.0.2       | f
+ session_2 |            807 | 172.19.0.5       | f
 (1 row)
 ```
 
@@ -1135,7 +1138,11 @@ illgreennews=# SELECT id, article_id, author, body FROM comments ORDER BY id;
 ### 2.2 симуляция программной ошибки на основном узле
 
 ```sh
-docker exec host-a pkill -9 postgres
+docker kill --signal=KILL host-a
+```
+
+```
+host-a
 ```
 
 ```sh
@@ -1143,492 +1150,421 @@ docker compose ps
 ```
 
 ```
-NAME      IMAGE                         COMMAND                  SERVICE   CREATED             STATUS             PORTS
-client    postgres:16-alpine            "sleep infinity"         client    15 minutes ago      Up 15 minutes      5432/tcp
-host-a    postgres:16-alpine            "docker-entrypoint.s…"   host-a    About an hour ago   Up About an hour   0.0.0.0:5433->5432/tcp, [::]:5433->5432/tcp
-host-b    postgres:16-alpine            "docker-entrypoint.s…"   host-b    About an hour ago   Up 53 minutes      0.0.0.0:5434->5432/tcp, [::]:5434->5432/tcp
-host-c    postgres:16-alpine            "docker-entrypoint.s…"   host-c    45 minutes ago      Up 9 minutes       0.0.0.0:5435->5432/tcp, [::]:5435->5432/tcp
-pgpool    bitnamilegacy/pgpool:latest   "/opt/bitnami/script…"   pgpool    42 minutes ago      Up 42 minutes      0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
+NAME      IMAGE                         COMMAND                  SERVICE   CREATED       STATUS          PORTS
+client    postgres:16-alpine            "sleep infinity"         client    2 hours ago   Up 52 minutes   5432/tcp
+host-b    postgres:16-alpine            "docker-entrypoint.s…"   host-b    6 days ago    Up 58 minutes   0.0.0.0:5434->5432/tcp, [::]:5434->5432/tcp
+host-c    postgres:16-alpine            "docker-entrypoint.s…"   host-c    6 days ago    Up 58 minutes   0.0.0.0:5435->5432/tcp, [::]:5435->5432/tcp
+pgpool    bitnamilegacy/pgpool:latest   "/opt/bitnami/script…"   pgpool    2 hours ago   Up 58 minutes   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
 ```
 
-### не сработало ????????????????? почему же???
+### 2.3 Обработка
 
-```
-2026-05-21 14:13:32.359 UTC [1] LOG:  checkpointer process (PID 27) was terminated by signal 9: Killed
-2026-05-21 14:13:32.359 UTC [1] LOG:  terminating any other active server processes
-2026-05-21 14:13:32.359 UTC [1] LOG:  all server processes terminated; reinitializing
-2026-05-21 14:13:32.369 UTC [972] LOG:  database system was interrupted; last known up at 2026-05-21 14:09:44 UTC
-2026-05-21 14:13:32.369 UTC [975] FATAL:  the database system is in recovery mode
-2026-05-21 14:13:32.399 UTC [972] LOG:  database system was not properly shut down; automatic recovery in progress
-2026-05-21 14:13:32.403 UTC [972] LOG:  redo starts at 0/343C748
-2026-05-21 14:13:32.404 UTC [972] LOG:  invalid record length at 0/343C830: expected at least 24, got 0
-2026-05-21 14:13:32.404 UTC [972] LOG:  redo done at 0/343C7F8 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
-2026-05-21 14:13:32.410 UTC [973] LOG:  checkpoint starting: end-of-recovery immediate wait
-2026-05-21 14:13:32.426 UTC [973] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.005 s, sync=0.004 s, total=0.018 s; sync files=2, longest=0.003 s, average=0.002 s; distance=0 kB, estimate=0 kB; lsn=0/343C830, redo lsn=0/343C830
-2026-05-21 14:13:32.430 UTC [1] LOG:  database system is ready to accept connections
-```
-
-### pkill -9 postgres postgres внутри контейнера был автоматически восстановлен
-### тогда остановим весь контейнер
+### зафиксируем состояние после фейловера
 
 ```sh
-docker compose stop host-a
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -d illgreennews -c " 
+INSERT INTO articles (title, content)
+VALUES ('Article After Failover', 'Inserted after promotion of host-b');
+"
 ```
 
 ```
-[+] stop 1/1
- ✔ Container host-a Stopped
+INSERT 0 1
 ```
 
 ```sh
-docker compose ps
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -d illgreennews -c "SELECT id, title, content FROM articles ORDER BY id;"
 ```
 
 ```
-NAME      IMAGE                         COMMAND                  SERVICE   CREATED             STATUS          PORTS
-client    postgres:16-alpine            "sleep infinity"         client    17 minutes ago      Up 17 minutes   5432/tcp
-host-b    postgres:16-alpine            "docker-entrypoint.s…"   host-b    About an hour ago   Up 55 minutes   0.0.0.0:5434->5432/tcp, [::]:5434->5432/tcp
-host-c    postgres:16-alpine            "docker-entrypoint.s…"   host-c    47 minutes ago      Up 11 minutes   0.0.0.0:5435->5432/tcp, [::]:5435->5432/tcp
-pgpool    bitnamilegacy/pgpool:latest   "/opt/bitnami/script…"   pgpool    44 minutes ago      Up 44 minutes   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
-
-```
-
-### для переключения был выполнен promote узла host-b
-
-```sh
-docker exec host-b psql -U postgres -c "SELECT pg_promote();"
-```
-
-```
- pg_promote 
-------------
- t
-(1 row)
+id |          title          |              content               
+----+-------------------------+------------------------------------
+  1 | Article X               | Text X
+  2 | Article Y               | Text Y
+  3 | Article Z               | Text Z
+  4 | Article Delay Test      | Appears on C after delay
+  5 | Article Before Failover | Inserted before primary failure
+ 38 | Article After Failover  | Inserted after promotion of host-b
+(6 rows)
 ```
 
 ```sh
-docker exec host-b psql -U postgres -c "SELECT pg_is_in_recovery();"
+sleep 10
+docker exec -e PGPASSWORD=secret host-c psql -U postgres -d illgreennews -c "SELECT id, title, content FROM articles ORDER BY id;"
 ```
 
 ```
- pg_is_in_recovery 
--------------------
- f
-(1 row)
+id |          title          |              content               
+----+-------------------------+------------------------------------
+  1 | Article X               | Text X
+  2 | Article Y               | Text Y
+  3 | Article Z               | Text Z
+  4 | Article Delay Test      | Appears on C after delay
+  5 | Article Before Failover | Inserted before primary failure
+ 38 | Article After Failover  | Inserted after promotion of host-b
+(6 rows)
 ```
 
 
-### после promotion был перезапущен pgpool, чтобы он перечитал актуальные роли backend-узлов.
-
-```sh
-docker compose restart pgpool
-```
-
-```
-[+] restart 0/1
- ⠹ Container pgpool Restarting
-```
-
-```sh 
-docker logs pgpool --tail=120
-```
-
-```
-2026-05-21 14:16:36.416: main pid 1: LOG:  find_primary_node: primary node is 1
-2026-05-21 14:16:36.416: main pid 1: LOG:  find_primary_node: standby node is 2
-2026-05-21 14:16:36.416: main pid 1: LOG:  failover: set new primary node: 1
-2026-05-21 14:16:36.416: main pid 1: LOG:  failover: set new main node: 1
-2026-05-21 14:16:36.422: main pid 1: LOG:  === Failover done. shutdown host host-a(5432) ===
-```
-
-### проверим прямые подключения из контейнера pgpool к host-b и host-c
+### проверяем что pgpool увидел failover правильно
 
 ```sh
-docker exec -e PGPASSWORD=secret pgpool psql -U postgres -h host-b -p 5432 -c "SELECT pg_is_in_recovery();"
-docker exec -e PGPASSWORD=secret pgpool psql -U postgres -h host-c -p 5432 -c "SELECT pg_is_in_recovery();"
-```
-
-```
- pg_is_in_recovery 
--------------------
- f
-(1 row)
-
- pg_is_in_recovery 
--------------------
- t
-(1 row)
-```
-
-```sh
-docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -c "SHOW POOL_NODES;"
+docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d illgreennews -c "SHOW POOL_NODES;"
 ```
 
 ```
  node_id | hostname | port | status | pg_status | lb_weight |  role   | pg_role | select_cnt | load_balance_node | replication_delay | replication_state | replication_sync_state | last_status_change  
 ---------+----------+------+--------+-----------+-----------+---------+---------+------------+-------------------+-------------------+-------------------+------------------------+---------------------
- 0       | host-a   | 5432 | down   | down      | 0.333333  | standby | unknown | 0          | false             | 0                 |                   |                        | 2026-05-21 14:17:04
- 1       | host-b   | 5432 | up     | up        | 0.333333  | primary | primary | 0          | true              | 0                 |                   |                        | 2026-05-21 14:19:04
- 2       | host-c   | 5432 | up     | up        | 0.333333  | standby | standby | 0          | false             | 0                 |                   |                        | 2026-05-21 14:19:04
+ 0       | host-a   | 5432 | down   | up        | 0.333333  | standby | primary | 3          | false             | 0                 |                   |                        | 2026-06-17 17:46:51
+ 1       | host-b   | 5432 | up     | up        | 0.333333  | primary | primary | 0          | true              | 0                 |                   |                        | 2026-06-17 17:46:51
+ 2       | host-c   | 5432 | up     | up        | 0.333333  | standby | standby | 5          | false             | 0                 |                   |                        | 2026-06-17 13:47:15
 (3 rows)
 ```
 
-### проверка чтения и записи после failover
-в первой сессии при попытке записи был зафиксирован разрыв старого соединения:
-
-```sql
-BEGIN;
-INSERT INTO articles (title, content)
-VALUES ('Article After Failover', 'Inserted after host-b promotion');
-INSERT INTO comments (article_id, author, body)
-VALUES (6, 'AfterFailoverUser', 'Comment after failover');
-COMMIT;
-```
-
-```
-FATAL:  unable to read data from DB node 0
-DETAIL:  EOF encountered with backend
-server closed the connection unexpectedly
-        This probably means the server terminated abnormally
-        before or while processing the request.
-The connection to the server was lost. Attempting reset: Succeeded.
-INSERT 0 1
-INSERT 0 1
-WARNING:  there is no transaction in progress
-COMMIT
-```
-
-во второй сессии при первом чтении также был зафиксирован разрыв соединения со старым узлом
-
-```sql
-SELECT id, title, content FROM articles ORDER BY id;
-```
-
-```
-FATAL:  unable to read data from DB node 0
-DETAIL:  EOF encountered with backend
-server closed the connection unexpectedly
-        This probably means the server terminated abnormally
-        before or while processing the request.
-The connection to the server was lost. Attempting reset: Succeeded.
-```
-
-### после failover была добавлена новая запись
-
-```sql
-INSERT INTO articles (title, content) VALUES ('Article After Failover Final', 'Inserted after failover through pgpool') RETURNING id;
-```
-
-```
- id 
-----
- 39
-(1 row)
-
-INSERT 0 1
-```
-
-```sql
-INSERT INTO comments (article_id, author, body) VALUES (39, 'AfterFailoverUser', 'Clean comment after failover');
-```
-
-```
-INSERT 0 1
-```
-
-```sql
-SELECT id, title, content FROM articles WHERE title LIKE 'Article After Failover%' ORDER BY id;
-```
-
-```
- id |            title             |                 content                 
-----+------------------------------+-----------------------------------------
- 37 | Article After Failover       | Inserted after host-b promotion
- 38 | Article After Failover OK    | Inserted after reconnect to new primary
- 39 | Article After Failover Final | Inserted after failover through pgpool
-(3 rows)
-```
-
-```sql
-SELECT id, article_id, author, body FROM comments WHERE article_id = 39 ORDER BY id;
-```
-
-```
- id | article_id |      author       |             body             
-----+------------+-------------------+------------------------------
- 39 |         39 | AfterFailoverUser | Clean comment after failover
-(1 row)
-```
-
-```sql
-SELECT inet_server_addr(), pg_is_in_recovery();
-```
-
-```
- inet_server_addr | pg_is_in_recovery 
-------------------+-------------------
- 172.19.0.3       | f
-(1 row)
-```
-
-### 2.3восстановление host-a как standby от host-b
+### перед pg_rewind создадим на host-b replication slot для временной реплики host-a
 
 ```sh
-docker exec host-b sh -c "grep -n 'replication.*replicator' /var/lib/postgresql/data/pg_hba.conf"
-docker exec host-b psql -U postgres -c "SELECT pg_is_in_recovery();"
-docker exec host-b psql -U postgres -c "SELECT rolname, rolreplication FROM pg_roles WHERE rolname = 'replicator';"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "
+DO 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_replication_slots WHERE slot_name = 'slot_a'
+    ) THEN
+        PERFORM pg_create_physical_replication_slot('slot_a');
+    END IF;
+END;
+"
 ```
 
 ```
-131:host    replication    replicator    0.0.0.0/0    password
-
- pg_is_in_recovery 
--------------------
- f
-(1 row)
-
-  rolname   | rolreplication 
-------------+----------------
- replicator | t
-(1 row)
+DO
 ```
-
-### остановим host-a и очистим его каталог данных
-
-```
-docker compose stop host-a
-sudo rm -rf data/a
-mkdir -p data/a
-sudo chown 70:70 data/a
-sudo ls -la data/a
-```
-
-```
-[+] stop 1/1
- ✔ Container host-a Stopped
-
-total 8
-drwxr-xr-x 2  70  70 4096 May 21 18:23 .
-drwx------ 5 rmb rmb 4096 May 21 18:23 ..
-```
-
-### создадим базовую копию с host-b для восстановления host-a
 
 ```sh
-docker run --rm -it --network lab3_pgnet -e PGPASSWORD=secret -v "$PWD/data/a:/var/lib/postgresql/data" postgres:16-alpine pg_basebackup -h host-b -U replicator -D /var/lib/postgresql/data -P -R --wal-method=stream -C -S slot_a_from_b
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SELECT slot_name, active FROM pg_replication_slots;"
 ```
 
 ```
-31003/31003 kB (100%), 1/1 tablespace
+slot_name | active 
+-----------+--------
+ slot_c    | t
+ slot_a    | f
+(2 rows)
 ```
 
-### запустим host-a и зададим параметры подключения к host-b через alter system
+### сделаем pg_rewind 
 
 ```sh
-docker compose up -d host-a
-docker exec host-a psql -U postgres -c "alter system set primary_conninfo = 'user=replicator password=secret host=host-b application_name=standby_a';"
-docker exec host-a psql -U postgres -c "alter system set primary_slot_name = 'slot_a_from_b';"
-docker compose restart host-a
+docker run --rm -it                                                                         
+  --network lab3_pgnet \
+  --user 70:70 \
+  -e PGPASSWORD=secret \
+  -v "$PWD/data/a:/var/lib/postgresql/data" \
+  postgres:16-alpine \
+  pg_rewind \
+    --target-pgdata=/var/lib/postgresql/data \
+    --source-server="host=host-b port=5432 user=postgres password=secret dbname=postgres"
 ```
 
 ```
-[+] up 1/1
- ✔ Container host-a Started
+pg_rewind: servers diverged at WAL location 0/843E8B0 on timeline 1
+pg_rewind: rewinding from last common checkpoint at 0/843E800 on timeline 1
+pg_rewind: Done!
+```
 
-ALTER SYSTEM
-ALTER SYSTEM
-
-[+] restart 0/1
- ⠹ Container host-a Restarting
- ```
-
-
-### проверим, что host-a запущен как standby от host-b
+### создадим standby.signal
 
 ```sh
-docker exec host-a pg_isready -U postgres
-docker exec host-a psql -U postgres -c "SELECT pg_is_in_recovery();"
-docker exec host-b psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
-docker exec host-b psql -U postgres -c "SELECT slot_name, active FROM pg_replication_slots;"
+sudo touch data/a/standby.signal
+```
+
+### конфигурация a
+```sh
+sudo tee data/a/postgresql.auto.conf > /dev/null <<'EOF'
+primary_conninfo = 'user=replicator password=secret host=host-b port=5432 application_name=standby_a'
+primary_slot_name = 'slot_a'
+EOF
+```
+
+```sh
+sudo chown 70:70 data/a/standby.signal data/a/postgresql.auto.conf
+```
+
+### поднимем узел
+
+```sh
+docker compose start host-a      
 ```
 
 ```
-/var/run/postgresql:5432 - accepting connections
+✔ Container host-a Started   
+```
 
+### проверим что всё ок
+
+```sh
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT pg_is_in_recovery();"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SHOW primary_conninfo;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SHOW primary_slot_name;"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+```
+
+```
  pg_is_in_recovery 
 -------------------
  t
 (1 row)
 
- application_name |   state   | sync_state 
+                                 primary_conninfo                                 
+----------------------------------------------------------------------------------
+ user=replicator password=secret host=host-b port=5432 application_name=standby_a
+(1 row)
+
+ primary_slot_name 
+-------------------
+ slot_a
+(1 row)
+application_name |   state   | sync_state 
 ------------------+-----------+------------
  standby_c        | streaming | async
  standby_a        | streaming | async
 (2 rows)
+```
 
-   slot_name   | active 
----------------+--------
- slot_c        | t
- slot_a_from_b | t
+### сделаем чекпоинт перед восстановлением
+
+```sh
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "CHECKPOINT;"
+```
+
+```
+CHECKPOINT
+```
+
+### переведи host-b в read-only:
+
+```sh
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -d illgreennews -c "ALTER DATABASE illgreennews SET default_transaction_read_only = on;"
+```
+```
+ALTER DATABASE
+```
+
+```sh
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -d illgreennews -c "SHOW default_transaction_read_only;"
+```
+
+```
+ default_transaction_read_only 
+-------------------------------
+ on
+(1 row)
+```
+
+```sh
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -d illgreennews -c "SELECT id, title FROM articles ORDER BY id;"
+```
+
+```
+ id |          title          
+----+-------------------------
+  1 | Article X
+  2 | Article Y
+  3 | Article Z
+  4 | Article Delay Test
+  5 | Article Before Failover
+ 38 | Article After Failover
+(6 rows)
+```
+
+```sh
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -d illgreennews -c "INSERT INTO articles (title, content) VALUES ('Blocked Write Test', 'Should not be inserted');"
+```
+
+```
+ERROR:  cannot execute INSERT in a read-only transaction
+```
+
+### проверим что a догнал b
+
+
+```sh
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SELECT application_name, state, sync_state, sent_lsn, write_lsn, flush_lsn, replay_lsn FROM pg_stat_replication;"
+```
+
+```
+application_name |   state   | sync_state | sent_lsn  | write_lsn | flush_lsn | replay_lsn 
+------------------+-----------+------------+-----------+-----------+-----------+------------
+ standby_c        | streaming | async      | 0/8449640 | 0/8449640 | 0/8449640 | 0/8449640
+ standby_a        | streaming | async      | 0/8449640 | 0/8449640 | 0/8449640 | 0/8449640
 (2 rows)
 ```
 
-```sh
-docker exec host-a psql -U postgres -d illgreennews -c "SELECT id, title, content FROM articles WHERE title LIKE 'Article After Failover%' ORDER BY id;"
-docker exec host-a psql -U postgres -d illgreennews -c "SELECT id, article_id, author, body FROM comments WHERE article_id = 39 ORDER BY id;"
-```
+### остановим текущий primary host-b перед обратным переключением
 
-```
-
- id |            title             |                 content                 
-----+------------------------------+-----------------------------------------
- 37 | Article After Failover       | Inserted after host-b promotion
- 38 | Article After Failover OK    | Inserted after reconnect to new primary
- 39 | Article After Failover Final | Inserted after failover through pgpool
-(3 rows)
-
- id | article_id |      author       |             body             
-----+------------+-------------------+------------------------------
- 39 |         39 | AfterFailoverUser | Clean comment after failover
-(1 row)
-```
-
-```
-данные, созданные после failover, появились на восстановленном host-a. это означает, что состояние базы на исходном основном узле было актуализировано
-```
-
-### возврат host-a в роль primary
-
-после того как host-a был восстановлен из актуального состояния host-b его можно вернуть в роль основного узла. для этого был выполнен promote host-a
-
-```sh
-docker exec host-a psql -U postgres -c "SELECT pg_promote();"
-```
-
-```
- pg_promote 
-------------
- t
-(1 row)
-```
-
-```sh
-docker exec host-a psql -U postgres -c "SELECT pg_is_in_recovery();"
-```
-
-```
- pg_is_in_recovery 
--------------------
- f
-(1 row)
-```
-
-### восстановление host-b как standby от host-a
+Так как `host-a` уже догнал `host-b`, а запись на `host-b` заблокирована, останавливаем текущий primary. Это нужно, чтобы при promotion `host-a` не получить два primary-узла одновременно.
 
 ```sh
 docker compose stop host-b
-sudo rm -rf data/b
-mkdir -p data/b
-sudo chown 70:70 data/b
-sudo ls -la data/b
 ```
 
 ```
 [+] stop 1/1
  ✔ Container host-b Stopped
-
-total 8
-drwxr-xr-x 2  70  70 4096 May 21 18:27 .
-drwx------ 5 rmb rmb 4096 May 21 18:27 ..
 ```
-
-### создадим базовую копию с host-a
 
 ```sh
-docker run --rm -it --network lab3_pgnet -e PGPASSWORD=secret -v "$PWD/data/b:/var/lib/postgresql/data" postgres:16-alpine pg_basebackup -h host-a -U replicator -D /var/lib/postgresql/data -P -R --wal-method=stream -C -S slot_b_recovered
+docker compose ps -a
 ```
 
 ```
-31003/31003 kB (100%), 1/1 tablespace
+NAME      IMAGE                         COMMAND                  SERVICE   CREATED       STATUS                     PORTS
+client    postgres:16-alpine            "sleep infinity"         client    6 hours ago   Up 5 hours                 5432/tcp
+host-a    postgres:16-alpine            "docker-entrypoint.s…"   host-a    6 days ago    Up 33 minutes              0.0.0.0:5433->5432/tcp, [::]:5433->5432/tcp
+host-b    postgres:16-alpine            "docker-entrypoint.s…"   host-b    6 days ago    Exited (0) 2 seconds ago   
+host-c    postgres:16-alpine            "docker-entrypoint.s…"   host-c    6 days ago    Up 5 hours                 0.0.0.0:5435->5432/tcp, [::]:5435->5432/tcp
+pgpool    bitnamilegacy/pgpool:latest   "/opt/bitnami/script…"   pgpool    6 hours ago   Up 5 hours                 0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
 ```
 
-### запустим host-b и зададим параметры подключения к host-a
+### promote host-a
+
+После остановки `host-b` повышаем `host-a` до primary.
 
 ```sh
-docker compose up -d host-b
-docker exec host-b psql -U postgres -c "alter system set primary_conninfo = 'user=replicator password=secret host=host-a application_name=standby_b';"
-docker exec host-b psql -U postgres -c "alter system set primary_slot_name = 'slot_b_recovered';"
-docker compose restart host-b`
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT pg_promote(true, 60);"
 ```
 
 ```
-[+] up 1/1
+ pg_promote 
+------------
+ t
+(1 row)
+```
+
+Проверим, что `host-a` больше не находится в recovery-режиме.
+
+```sh
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT pg_is_in_recovery();"
+```
+
+```
+ pg_is_in_recovery 
+-------------------
+ f
+(1 row)
+```
+
+Теперь `host-a` снова является primary.
+
+### создадим replication slot для host-b на новом primary host-a
+
+Перед возвратом `host-b` в режим standby создадим на `host-a` слот `slot_b`.
+
+```sh
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "
+DO \$\$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_replication_slots WHERE slot_name = 'slot_b'
+    ) THEN
+        PERFORM pg_create_physical_replication_slot('slot_b');
+    END IF;
+END
+\$\$;
+"
+```
+
+```
+DO
+```
+
+```sh
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT slot_name, active FROM pg_replication_slots;"
+```
+
+```
+ slot_name | active 
+-----------+--------
+ slot_b    | f
+(1 row)
+```
+
+Слот неактивен, потому что `host-b` ещё не запущен.
+
+### сделаем pg_rewind для host-b от нового primary host-a
+
+Теперь приводим каталог данных `host-b` к WAL-истории нового primary `host-a`.
+
+```sh
+docker run --rm -it \
+  --network lab3_pgnet \
+  --user 70:70 \
+  -e PGPASSWORD=secret \
+  -v "$PWD/data/b:/var/lib/postgresql/data" \
+  postgres:16-alpine \
+  pg_rewind \
+    --target-pgdata=/var/lib/postgresql/data \
+    --source-server="host=host-a port=5432 user=postgres password=secret dbname=postgres"
+```
+
+```
+pg_rewind: servers diverged at WAL location 0/84496B8 on timeline 2
+pg_rewind: no rewind required
+```
+
+В данном случае физическое перематывание не потребовалось, так как `host-b` был остановлен после блокировки записи и после того, как `host-a` успел догнать его состояние.
+
+### настроим host-b как standby от host-a
+
+Создадим `standby.signal`, чтобы при следующем запуске PostgreSQL на `host-b` стартовал в режиме standby.
+
+```sh
+sudo touch data/b/standby.signal
+```
+
+Пропишем подключение к новому primary `host-a`.
+
+```sh
+sudo tee data/b/postgresql.auto.conf > /dev/null <<'EOF'
+primary_conninfo = 'user=replicator password=secret host=host-a port=5432 application_name=standby_b'
+primary_slot_name = 'slot_b'
+EOF
+```
+
+Выставим владельца файлов.
+
+```sh
+sudo chown 70:70 data/b/standby.signal data/b/postgresql.auto.conf
+```
+
+### поднимем host-b
+
+```sh
+docker compose start host-b
+```
+
+```
+[+] start 1/1
  ✔ Container host-b Started
-
-ALTER SYSTEM
-ALTER SYSTEM
-
-[+] restart 0/1
- ⠹ Container host-b Restarting
 ```
 
-### проверим, что host-b стал standby-репликой
+Проверим, что `host-b` поднялся как standby.
 
 ```sh
-docker exec host-b pg_isready -U postgres
-docker exec host-b psql -U postgres -c "SELECT pg_is_in_recovery();"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SELECT pg_is_in_recovery();"
 ```
 
 ```
-/var/run/postgresql:5432 - accepting connections
-
  pg_is_in_recovery 
 -------------------
  t
 (1 row)
 ```
 
-### проверим, что host-a видит host-b как реплику
+Проверим на `host-a`, что `host-b` подключился как синхронная реплика.
 
 ```sh
-docker exec host-a psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
-```
-
-```
- application_name |   state   | sync_state 
-------------------+-----------+------------
- standby_b        | streaming | async
-(1 row)
-
-```
-
-### на этом этапе репликация уже восстановлена, но она пока асинхронная
-
-```sh
-docker exec host-a psql -U postgres -c "alter system set synchronous_standby_names = 'standby_b';"
-docker compose restart host-a
-```
-
-```
-ALTER SYSTEM
-
-[+] restart 0/1
- ⠹ Container host-a Restarting
-```
-
-```sh
-docker exec host-a psql -U postgres -c "SHOW synchronous_standby_names;"
-```
-
-```
- synchronous_standby_names 
----------------------------
- standby_b
-(1 row)
-```
-
-```sh
-docker exec host-a psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
 ```
 
 ```
@@ -1638,81 +1574,25 @@ docker exec host-a psql -U postgres -c "SELECT application_name, state, sync_sta
 (1 row)
 ```
 
-### восстановление host-c как standby от host-b
+### проверим host-c
 
-восстановление `host-c` выполнялось аналогично восстановлению `host-b`: старый каталог данных был очищен, после чего была создана новая базовая копия с upstream-узла.
-
-отличие состоит в том, что для `host-c` источником репликации является не `host-a`, а `host-b`, а также сохраняется параметр задержки применения WAL:
-
-```
-recovery_min_apply_delay = '10s'
-```
-### очистим каталог данных host-c.
-```sh
-docker compose stop host-c
-sudo rm -rf data/c
-mkdir -p data/c
-sudo chown 70:70 data/c
-sudo ls -la data/c
-```
-
-```
-[+] stop 1/1
- ✔ Container host-c Stopped
-
-total 8
-drwxr-xr-x 2  70  70 4096 May 21 18:33 .
-drwx------ 5 rmb rmb 4096 May 21 18:33 ..
-```
-### создадим базовую копию с host-b.
+Проверим, что `host-c` остался standby.
 
 ```sh
-docker run --rm -it --network lab3_pgnet -e PGPASSWORD=secret -v "$PWD/data/c:/var/lib/postgresql/data" postgres:16-alpine pg_basebackup -h host-b -U replicator -D /var/lib/postgresql/data -P -R --wal-method=stream -C -S slot_c_recovered
+docker exec -e PGPASSWORD=secret host-c psql -U postgres -c "SELECT pg_is_in_recovery();"
 ```
 
 ```
-31004/31004 kB (100%), 1/1 tablespace
-```
-
-### запустим host-c и зададим параметры подключения к host-b
-
-```sh
-docker compose up -d host-c
-docker exec host-c psql -U postgres -c "alter system set primary_conninfo = 'user=replicator password=secret host=host-b application_name=standby_c';"
-docker exec host-c psql -U postgres -c "alter system set primary_slot_name = 'slot_c_recovered';"
-docker exec host-c psql -U postgres -c "alter system set recovery_min_apply_delay = '10s';"
-docker compose restart host-c
-```
-
-```
-[+] up 1/1
- ✔ Container host-c Started
-
-ALTER SYSTEM
-ALTER SYSTEM
-ALTER SYSTEM
-```
-
-### проверим, что host-c работает как standby
-
-```sh
-docker exec host-c pg_isready -U postgres
-docker exec host-c psql -U postgres -c "SELECT pg_is_in_recovery();"
-```
-
-```
-/var/run/postgresql:5432 - accepting connections
-
  pg_is_in_recovery 
 -------------------
  t
 (1 row)
 ```
 
-### проверим, что host-b видит host-c как асинхронную реплику
+Проверим, что `host-c` подключился к `host-b` как каскадная асинхронная реплика.
 
 ```sh
-docker exec host-b psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
 ```
 
 ```
@@ -1722,161 +1602,226 @@ docker exec host-b psql -U postgres -c "SELECT application_name, state, sync_sta
 (1 row)
 ```
 
-### проверим replication slot на host-b
+
+### снимем read-only с базы illgreennews
 
 ```sh
-docker exec host-b psql -U postgres -c "SELECT slot_name, active FROM pg_replication_slots;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -d postgres -c "ALTER DATABASE illgreennews RESET default_transaction_read_only;"
 ```
 
 ```
-    slot_name     | active 
-------------------+--------
- slot_c_recovered | t
-(1 row)
+ALTER DATABASE
 ```
 
-таким образом, host-c был восстановлен как асинхронная каскадная реплика host-b.
-
-### проверим роли узлов
-
-```
-docker exec host-a psql -U postgres -c "SELECT 'host-a' AS node, pg_is_in_recovery();"
-docker exec host-b psql -U postgres -c "SELECT 'host-b' AS node, pg_is_in_recovery();"
-docker exec host-c psql -U postgres -c "SELECT 'host-c' AS node, pg_is_in_recovery();"
-```
-
-```
-  node  | pg_is_in_recovery 
---------+-------------------
- host-a | f
-(1 row)
-
-  node  | pg_is_in_recovery 
---------+-------------------
- host-b | t
-(1 row)
-
-  node  | pg_is_in_recovery 
---------+-------------------
- host-c | t
-(1 row)
-```
+### проверим, что read-only отключён.
 
 ```sh
-docker exec host-a psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -d illgreennews -c "SHOW default_transaction_read_only;"
 ```
 
 ```
- application_name |   state   | sync_state 
-------------------+-----------+------------
- standby_b        | streaming | sync
+ default_transaction_read_only 
+-------------------------------
+ off
 (1 row)
 ```
 
+### проверим запись на восстановленном primary host-a
 
 ```sh
-docker exec host-b psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -d illgreennews -c "
+INSERT INTO articles (title, content)
+VALUES ('Article After Recovery', 'Inserted after returning original topology');
+"
 ```
 
 ```
- application_name |   state   | sync_state 
-------------------+-----------+------------
- standby_c        | streaming | async
-(1 row)
+INSERT 0 1
 ```
 
-### таким образом, исходная конфигурация была восстановлена:
+### проверим данные на `host-a`.
+
+```sh
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -d illgreennews -c "SELECT id, title FROM articles ORDER BY id;"
+```
 
 ```
-host-a — primary
-host-b — synchronous standby
-host-c — asynchronous standby
+ id |          title          
+----+-------------------------
+  1 | Article X
+  2 | Article Y
+  3 | Article Z
+  4 | Article Delay Test
+  5 | Article Before Failover
+ 38 | Article After Failover
+ 71 | Article After Recovery
+(7 rows)
 ```
+
+### проверим, что запись дошла до `host-b`.
+
+```sh
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -d illgreennews -c "SELECT id, title FROM articles ORDER BY id;"
+```
+
+```
+ id |          title          
+----+-------------------------
+  1 | Article X
+  2 | Article Y
+  3 | Article Z
+  4 | Article Delay Test
+  5 | Article Before Failover
+ 38 | Article After Failover
+ 71 | Article After Recovery
+(7 rows)
+```
+
+### проверим, что запись дошла до `host-c`.
+
+```sh
+sleep 10; docker exec -e PGPASSWORD=secret host-c psql -U postgres -d illgreennews -c "SELECT id, title FROM articles ORDER BY id;"
+```
+
+```
+ id |          title          
+----+-------------------------
+  1 | Article X
+  2 | Article Y
+  3 | Article Z
+  4 | Article Delay Test
+  5 | Article Before Failover
+ 38 | Article After Failover
+ 71 | Article After Recovery
+(7 rows)
+```
+
+### обновим состояние pgpool
+
+После обратного переключения перезапустим `pgpool`, чтобы он заново определил роли узлов.
 
 ```sh
 docker compose restart pgpool
 ```
 
-```
-[+] restart 0/1
- ⠹ Container pgpool Restarting
- ```
-
-### проверим состояние узлов через pgpool
+### проверим состояние узлов через `pgpool`.
 
 ```sh
-docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -c "SHOW POOL_NODES;"
+docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d illgreennews -c "SHOW POOL_NODES;"
 ```
 
 ```
  node_id | hostname | port | status | pg_status | lb_weight |  role   | pg_role | select_cnt | load_balance_node | replication_delay | replication_state | replication_sync_state | last_status_change  
 ---------+----------+------+--------+-----------+-----------+---------+---------+------------+-------------------+-------------------+-------------------+------------------------+---------------------
- 0       | host-a   | 5432 | up     | up        | 0.333333  | primary | primary | 0          | false             | 0                 |                   |                        | 2026-05-21 16:29:49
- 1       | host-b   | 5432 | up     | up        | 0.333333  | standby | standby | 0          | true              | 0                 |                   |                        | 2026-05-21 16:29:49
- 2       | host-c   | 5432 | up     | up        | 0.333333  | standby | standby | 0          | false             | 0                 |                   |                        | 2026-05-21 16:29:49
+ 0       | host-a   | 5432 | up     | up        | 0.333333  | primary | primary | 0          | true              | 0                 |                   |                        | 2026-06-17 18:53:23
+ 1       | host-b   | 5432 | up     | up        | 0.333333  | standby | standby | 0          | false             | 0                 |                   |                        | 2026-06-17 18:53:23
+ 2       | host-c   | 5432 | up     | up        | 0.333333  | standby | standby | 0          | false             | 0                 |                   |                        | 2026-06-17 18:53:23
 (3 rows)
 ```
 
-### после восстановления была выполнена финальная запись через pgpoo
+
+### финальная проверка записи через pgpool
+
 
 ```sh
-docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d illgreennews -c "BEGIN; INSERT INTO articles (title, content) VALUES ('Article After Recovery', 'Inserted after full cluster recovery') RETURNING id; COMMIT;"
-```
-
-```
-BEGIN
- id 
-----
- 40
-(1 row)
-
-INSERT 0 1
-COMMIT
-```
-
-### добавим комментарий к созданной статье
-
-```sh
-docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d illgreennews -c "INSERT INTO comments (article_id, author, body) VALUES (40, 'RecoveryUser', 'Comment after full recovery');"
+docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d illgreennews -c "
+INSERT INTO articles (title, content)
+VALUES ('Article Through Pgpool After Recovery', 'Inserted through pgpool after full recovery');
+"
 ```
 
 ```
 INSERT 0 1
 ```
 
-### проверим добавленную статью
+### проверим данные через `pgpool`.
 
 ```sh
-docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d illgreennews -c "SELECT id, title, content FROM articles WHERE id = 40;"
+docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d illgreennews -c "SELECT id, title FROM articles ORDER BY id;"
 ```
 
 ```
- id |         title          |               content                
-----+------------------------+--------------------------------------
- 40 | Article After Recovery | Inserted after full cluster recovery
-(1 row)
+ id |                 title                 
+----+---------------------------------------
+  1 | Article X
+  2 | Article Y
+  3 | Article Z
+  4 | Article Delay Test
+  5 | Article Before Failover
+ 38 | Article After Failover
+ 71 | Article After Recovery
+ 72 | Article Through Pgpool After Recovery
+(8 rows)
 ```
-### проверим добавленный комментарий.
+
+### проверим, что запись дошла до `host-b`.
 
 ```sh
-docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d illgreennews -c "SELECT id, article_id, author, body FROM comments WHERE article_id = 40;"
-```
-```
- id | article_id |    author    |            body             
-----+------------+--------------+-----------------------------
- 40 |         40 | RecoveryUser | Comment after full recovery
-(1 row)
-```
-### проверим, что подключение через pgpool направлено на primary-узел.
-```sh
-docker exec -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -d illgreennews -c "SELECT inet_server_addr(), pg_is_in_recovery();"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -d illgreennews -c "SELECT id, title FROM articles ORDER BY id;"
 ```
 
 ```
- inet_server_addr | pg_is_in_recovery 
-------------------+-------------------
- 172.19.0.5       | f
+ id |                 title                 
+----+---------------------------------------
+  1 | Article X
+  2 | Article Y
+  3 | Article Z
+  4 | Article Delay Test
+  5 | Article Before Failover
+ 38 | Article After Failover
+ 71 | Article After Recovery
+ 72 | Article Through Pgpool After Recovery
+(8 rows)
+```
+
+### проверим, что запись дошла до `host-c`.
+
+```sh
+sleep 10; docker exec -e PGPASSWORD=secret host-c psql -U postgres -d illgreennews -c "SELECT id, title FROM articles ORDER BY id;"
+```
+
+```
+ id |                 title                 
+----+---------------------------------------
+  1 | Article X
+  2 | Article Y
+  3 | Article Z
+  4 | Article Delay Test
+  5 | Article Before Failover
+ 38 | Article After Failover
+ 71 | Article After Recovery
+ 72 | Article Through Pgpool After Recovery
+(8 rows)
+```
+
+### финальная проверка репликации
+
+
+```sh
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+```
+
+```
+ application_name |   state   | sync_state 
+------------------+-----------+------------
+ standby_b        | streaming | sync
 (1 row)
+```
+
+### проверим каскадную асинхронную репликацию `host-c` от `host-b`.
+
+```sh
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+```
+
+```
+ application_name |   state   | sync_state 
+------------------+-----------+------------
+ standby_c        | streaming | async
+(1 row)
+```
+
+host-a -> host-b -> host-c
 ```
 
 ### Вывод

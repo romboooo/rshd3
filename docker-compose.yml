@@ -7,14 +7,17 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: secret
     volumes:
-      - ./data/a:/var/lib/postgresql/data 
-      - ./config/a:/etc/postgresql/config   
+      - ./data/a:/var/lib/postgresql/data
+      - ./config/a:/etc/postgresql/config
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/config/postgresql.conf
+      -c hba_file=/etc/postgresql/config/pg_hba.conf
     ports:
       - "5433:5432"
     networks:
       - pgnet
     restart: no
-
   host-b:
     image: postgres:16-alpine
     container_name: host-b
@@ -25,6 +28,10 @@ services:
     volumes:
       - ./data/b:/var/lib/postgresql/data
       - ./config/b:/etc/postgresql/config
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/config/postgresql.conf
+      -c hba_file=/etc/postgresql/config/pg_hba.conf
     ports:
       - "5434:5432"
     networks:
@@ -41,6 +48,10 @@ services:
     volumes:
       - ./data/c:/var/lib/postgresql/data
       - ./config/c:/etc/postgresql/config
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/config/postgresql.conf
+      -c hba_file=/etc/postgresql/config/pg_hba.conf
     ports:
       - "5435:5432"
     networks:
