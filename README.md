@@ -506,7 +506,25 @@ synchronous_standby_names
 
 ### настройка host-с как асинхронной каскадной реплики host-b
 
-#### очистка
+### подготовка конфигурационного файла host-c
+
+```sh
+cat > config/c/postgresql.conf <<'EOF'
+listen_addresses = '*'
+
+wal_level = replica
+max_wal_senders = 10
+max_replication_slots = 10
+wal_keep_size = 256MB
+hot_standby = on
+
+recovery_min_apply_delay = '10s'
+
+wal_log_hints = on
+EOF
+```
+
+### очистка каталога данных host-c
 
 ```sh
 docker compose stop host-c
@@ -528,26 +546,26 @@ drwxr-xr-x 5 rmb rmb 4096 May 21 16:21 ..
 docker run --rm -it \
   --network lab3_pgnet \
   -e PGPASSWORD=secret \
-  -v "$PWD/data/b:/var/lib/postgresql/data" \
+  -v "$PWD/data/c:/var/lib/postgresql/data" \
   postgres:16-alpine \
   pg_basebackup \
-    -d "host=host-a port=5432 user=replicator application_name=standby_b" \
+    -d "host=host-b port=5432 user=replicator application_name=standby_c" \
     -D /var/lib/postgresql/data \
     -P \
     -R \
     --wal-method=stream \
     -C \
-    -S slot_b
+    -S slot_c
 ```
 
 ```
 23248/23248 kB (100%), 1/1 tablespace
 ```
 
-### перезапуск
+### запуск host-c
 
 ```sh
-docker compose restart host-c
+docker compose start host-c
 ```
 
 ```
@@ -555,47 +573,49 @@ docker compose restart host-c
  ✔ Container host-c Started
 ```
 
-### зададим параметры подключения к host-b через alter system и перезапустим контейнер
+
+### проверка, что host-c использует вынесенные конфиги
 
 ```sh
-docker exec host-c psql -U postgres -c "alter system set primary_conninfo = 'user=replicator password=secret host=host-b application_name=standby_c';"
-docker exec host-c psql -U postgres -c "alter system set primary_slot_name = 'slot_c';"
+docker exec -e PGPASSWORD=secret host-c psql -U postgres -c "SHOW config_file;"
+docker exec -e PGPASSWORD=secret host-c psql -U postgres -c "SHOW hba_file;"
+docker exec host-c sh -c "grep -n 'recovery_min_apply_delay' /etc/postgresql/config/postgresql.conf"
 ```
 
 ```
-ALTER SYSTEM
-ALTER SYSTEM
-```
-
-### докер очень быстро обрабатывает асинхронную репликацию поэтому для наглядности задержки сделан delay
-```
-docker exec host-c psql -U postgres -c "alter system set recovery_min_apply_delay = '10s';"
-```
-
-```
-ALTER SYSTEM
-```
-
-### проверка применения
-
-```sh
-docker exec host-c psql -U postgres -c "SHOW primary_conninfo;"
-docker exec host-c psql -U postgres -c "SHOW primary_slot_name;"
-docker exec host-c psql -U postgres -c "SHOW recovery_min_apply_delay;"
-```
-
-```
- primary_conninfo
----------------------------------------------------------------------------
- user=replicator password=secret host=host-b application_name=standby_c
+              config_file               
+----------------------------------------
+ /etc/postgresql/config/postgresql.conf
 (1 row)
 
- primary_slot_name
+              hba_file              
+------------------------------------
+ /etc/postgresql/config/pg_hba.conf
+(1 row)
+
+9:recovery_min_apply_delay = '10s'
+```
+
+### проверка recovery-настроек host-c
+
+```sh
+docker exec -e PGPASSWORD=secret host-c psql -U postgres -c "SHOW primary_conninfo;"
+docker exec -e PGPASSWORD=secret host-c psql -U postgres -c "SHOW primary_slot_name;"
+docker exec -e PGPASSWORD=secret host-c psql -U postgres -c "SHOW recovery_min_apply_delay;"
+```
+
+```
+primary_conninfo                                                                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ user=replicator password=secret channel_binding=prefer host='host-b' port=5432 application_name=standby_c sslmode=prefer sslcompression=0 sslcertmode=allow sslsni=1 ssl_min_protocol_version=TLSv1.2 gssencmode=prefer krbsrvname=postgres gssdelegation=0 target_session_attrs=any load_balance_hosts=disable
+(1 row)
+
+ primary_slot_name 
 -------------------
  slot_c
 (1 row)
 
- recovery_min_apply_delay
+ recovery_min_apply_delay 
 --------------------------
  10s
 (1 row)
@@ -605,7 +625,7 @@ docker exec host-c psql -U postgres -c "SHOW recovery_min_apply_delay;"
 
 ```sh
 docker exec host-c pg_isready -U postgres
-docker exec host-c psql -U postgres -c "SELECT pg_is_in_recovery();"
+docker exec -e PGPASSWORD=secret host-c psql -U postgres -c "SELECT pg_is_in_recovery();"
 ```
 
 ```
@@ -620,7 +640,7 @@ docker exec host-c psql -U postgres -c "SELECT pg_is_in_recovery();"
 ### проверим на host-b, что host-c подключён как асинхронная реплика
 
 ```sh
-docker exec host-b psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
 ```
 
 ```
@@ -634,11 +654,11 @@ docker exec host-b psql -U postgres -c "SELECT application_name, state, sync_sta
 ### проверим replication slot на host-b
 
 ```sh
-docker exec host-b psql -U postgres -c "SELECT slot_name, active FROM pg_replication_slots;"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SELECT slot_name, active FROM pg_replication_slots;"
 ```
 
 ```
- slot_name | active 
+slot_name | active 
 -----------+--------
  slot_c    | t
 (1 row)
@@ -647,7 +667,8 @@ docker exec host-b psql -U postgres -c "SELECT slot_name, active FROM pg_replica
 ### готово! репликация настроена
 
 ```
-host-a -> host-b -> host-c
+host-a -> host-b (синхронный) 
+host-a -> host-c (асинхронный delay=10)
 ```
 
 ### подключение pgpool
