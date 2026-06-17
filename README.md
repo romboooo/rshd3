@@ -99,14 +99,17 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: secret
     volumes:
-      - ./data/a:/var/lib/postgresql/data 
-      - ./config/a:/etc/postgresql/config   
+      - ./data/a:/var/lib/postgresql/data
+      - ./config/a:/etc/postgresql/config
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/config/postgresql.conf
+      -c hba_file=/etc/postgresql/config/pg_hba.conf
     ports:
       - "5433:5432"
     networks:
       - pgnet
     restart: no
-
   host-b:
     image: postgres:16-alpine
     container_name: host-b
@@ -117,6 +120,10 @@ services:
     volumes:
       - ./data/b:/var/lib/postgresql/data
       - ./config/b:/etc/postgresql/config
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/config/postgresql.conf
+      -c hba_file=/etc/postgresql/config/pg_hba.conf
     ports:
       - "5434:5432"
     networks:
@@ -133,6 +140,10 @@ services:
     volumes:
       - ./data/c:/var/lib/postgresql/data
       - ./config/c:/etc/postgresql/config
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/config/postgresql.conf
+      -c hba_file=/etc/postgresql/config/pg_hba.conf
     ports:
       - "5435:5432"
     networks:
@@ -179,6 +190,37 @@ networks:
     driver: bridge
 ```
 
+### настройка конфигурационных файлов host-a
+
+```sh
+cat > config/a/postgresql.conf <<'EOF'
+listen_addresses = '*'
+
+wal_level = replica
+max_wal_senders = 10
+max_replication_slots = 10
+wal_keep_size = 256MB
+hot_standby = on
+
+
+wal_log_hints = on
+EOF
+```
+
+### настроим pg_hba.conf
+
+```sh
+cat > config/a/pg_hba.conf <<'EOF'
+local   all             all                                     password
+host    all             all             127.0.0.1/32            password
+host    all             all             ::1/128                 password
+host    all             all             0.0.0.0/0               password
+
+local   replication     all                                     password
+host    replication     replicator      0.0.0.0/0               password
+EOF
+```
+
 ### Запуск основного узла host-a
 
 ```sh
@@ -204,7 +246,7 @@ docker exec host-a pg_isready -U postgres
 ### проверим что host-a не находится в режиме восстановления то есть является primary
 
 ```sh
-docker exec host-a psql -U postgres -c "SELECT pg_is_in_recovery();"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT pg_is_in_recovery();"
 ```
 
 ```
@@ -214,82 +256,24 @@ docker exec host-a psql -U postgres -c "SELECT pg_is_in_recovery();"
 (1 row)
 ```
 
-### настройка host-a как primary-узла
-
-```sh
-docker exec host-a psql -U postgres -c "alter system set wal_level = 'replica';"
-docker exec host-a psql -U postgres -c "alter system set max_wal_senders = 10;"
-docker exec host-a psql -U postgres -c "alter system set max_replication_slots = 10;"
-docker exec host-a psql -U postgres -c "alter system set wal_keep_size = '256MB';"
-docker exec host-a psql -U postgres -c "alter system set synchronous_standby_names = 'standby_b';"
-```
-
-```
-alter system
-alter system
-alter system
-alter system
-alter system
-```
-
 ### создадим юзера для репликации
 
 ```sh
-docker exec host-a psql -U postgres -c "CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD 'secret';"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD 'secret';"
 ```
 
 ```
 CREATE ROLE
 ```
 
-### настроим pg_hba.conf
-
-```
-host    all             all             127.0.0.1/32            trust
-# IPv6 local connections:
-host    all             all             ::1/128                 trust
-# Allow replication connections from localhost, by a user with the
-# replication privilege.
-local   replication     all                                     trust
-host    replication     all             127.0.0.1/32            trust
-host    replication     all             ::1/128                 trust
-
-host all all all scram-sha-256
-
-host    replication    replicator    0.0.0.0/0    password
-```
-
-### перезагрузим конфиги и контейнер 
-
-```sh
-docker exec host-a psql -U postgres -c "SELECT pg_reload_conf();"
-```
-
-```
- pg_reload_conf 
-----------------
- t
-(1 row)
-```
-
-```sh
-docker compose restart host-a
-```
-
-```
-[+] restart 0/1
- ⠹ Container host-a Restarting
-```
-
 ### проверим что всё применилось
 
 ```sh 
-docker exec host-a psql -U postgres -c "SHOW wal_level;"
-docker exec host-a psql -U postgres -c "SHOW max_wal_senders;"
-docker exec host-a psql -U postgres -c "SHOW max_replication_slots;"
-docker exec host-a psql -U postgres -c "SHOW wal_keep_size;"
-docker exec host-a psql -U postgres -c "SHOW synchronous_standby_names;"
-docker exec host-a psql -U postgres -c "SELECT rolname, rolreplication FROM pg_roles WHERE rolname IN ('postgres', 'replicator');"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SHOW wal_level;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SHOW max_wal_senders;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SHOW max_replication_slots;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SHOW wal_keep_size;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT rolname, rolreplication FROM pg_roles WHERE rolname IN ('postgres', 'replicator');"
 ```
 
 ```
@@ -313,11 +297,6 @@ docker exec host-a psql -U postgres -c "SELECT rolname, rolreplication FROM pg_r
  256MB
 (1 row)
 
- synchronous_standby_names 
----------------------------
- standby_b
-(1 row)
-
   rolname   | rolreplication 
 ------------+----------------
  postgres   | t
@@ -327,7 +306,39 @@ docker exec host-a psql -U postgres -c "SELECT rolname, rolreplication FROM pg_r
 
 ### настройка host-b как синхронной реплики host-a
 
-#### очистка
+
+
+### Подготовка host-b для каскадной репликации (не только standby но и источник потоковой репликации)
+
+```sh
+cat > config/b/postgresql.conf <<'EOF'
+listen_addresses = '*'
+
+wal_level = replica
+max_wal_senders = 10
+max_replication_slots = 10
+wal_keep_size = 256MB
+hot_standby = on
+
+wal_log_hints = on
+EOF
+```
+
+### настроим pg_hba.conf
+
+```sh
+cat > config/b/pg_hba.conf <<'EOF'
+local   all             all                                     password
+host    all             all             127.0.0.1/32            password
+host    all             all             ::1/128                 password
+host    all             all             0.0.0.0/0               password
+
+local   replication     all                                     password
+host    replication     replicator      0.0.0.0/0               password
+EOF
+```
+
+#### очистка каталога данных host-b
 
 ```sh
 docker compose stop host-b
@@ -346,8 +357,7 @@ docker run --rm -it \
   -v "$PWD/data/b:/var/lib/postgresql/data" \
   postgres:16-alpine \
   pg_basebackup \
-    -h host-a \
-    -U replicator \
+    -d "host=host-a port=5432 user=replicator application_name=standby_b" \
     -D /var/lib/postgresql/data \
     -P \
     -R \
@@ -359,7 +369,8 @@ docker run --rm -it \
 ```
 23246/23246 kB (100%), 1/1 tablespace
 ```
-### запуск
+
+### запуск host-b
 
 ```sh
 docker compose start host-b
@@ -369,148 +380,128 @@ docker compose start host-b
 [+] start 1/1
  ✔ Container host-b Started
 ```
-### конфигурация
+
+### проверка, что host-b использует вынесенные конфиги
 
 ```sh
-docker exec host-b psql -U postgres -c "alter system set primary_conninfo = 'user=replicator password=secret host=host-a application_name=standby_b';"
-docker exec host-b psql -U postgres -c "alter system set primary_slot_name = 'slot_b';"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SHOW config_file;"
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SHOW hba_file;"
+docker exec host-b sh -c "grep -n 'replication.*replicator' /etc/postgresql/config/pg_hba.conf"
 ```
 
-
-### перезапуск
-```sh
-docker compose restart host-b
 ```
 
-### проверка
-
-```sh
-docker exec host-b psql -U postgres -c "SHOW primary_conninfo;"
-docker exec host-b psql -U postgres -c "SHOW primary_slot_name;"
-```
-
-```sh
-primary_conninfo
---------------------------------------------------------------------------------
-user=replicator password=secret host=host-a application_name=standby_b
+              config_file               
+----------------------------------------
+ /etc/postgresql/config/postgresql.conf
 (1 row)
 
-primary_slot_name
-------------------
-slot_b
+              hba_file              
+------------------------------------
+ /etc/postgresql/config/pg_hba.conf
+(1 row)
+
+7:host    replication     replicator      0.0.0.0/0               password
+
+```
+
+
+### проверка recovery-настроек host-b
+
+```sh
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SHOW primary_conninfo;" 
+```
+
+```
+primary_conninfo                                                                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ user=replicator password=secret channel_binding=prefer host='host-a' port=5432 application_name=standby_b sslmode=prefer sslcompression=0 sslcertmode=allow sslsni=1 ssl_min_protocol_version=TLSv1.2 gssencmode=prefer krbsrvname=postgres gssdelegation=0 target_session_attrs=any load_balance_hosts=disable
+(1 row)
+```
+
+```sh
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SHOW primary_slot_name;"
+```
+
+```
+primary_slot_name 
+-------------------
+ slot_b
 (1 row)
 ```
 
 
-
-### проверим что postgres на host-b принимает подключения
+### проверим, что host-b работает как standby
 
 ```sh
 docker exec host-b pg_isready -U postgres
+docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SELECT pg_is_in_recovery();"
 ```
 
 ```
 /var/run/postgresql:5432 - accepting connections
-```
-
-### проверим standby
-
-```sh
-docker exec host-b psql -U postgres -c "SELECT pg_is_in_recovery();"
-```
-
-```
  pg_is_in_recovery 
 -------------------
  t
 (1 row)
 ```
 
-### проверим на host-a, что реплика standby_b подключена и работает в синхронном режиме
+### проверка подключения host-b к host-a до включения синхронности
 
 ```sh
-docker exec host-a psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT slot_name, active FROM pg_replication_slots;"
 ```
-
 ```
  application_name |   state   | sync_state 
 ------------------+-----------+------------
- standby_b        | streaming | sync
+ standby_b        | streaming | async
 (1 row)
-```
 
-### также проверими что replication slot slot_b active =true
-
-```sh
-docker exec host-a psql -U postgres -c "SELECT slot_name, active FROM pg_replication_slots;"
-```
-
-```
  slot_name | active 
 -----------+--------
  slot_b    | t
 (1 row)
 ```
-
-### Подготовка host-b для каскадной репликации (не только standby но и источник потоковой репликации)
+### включим синхронную репликацию на host-a
 
 ```sh
-docker exec host-b psql -U postgres -c "alter system set max_wal_senders = 10;"
-docker exec host-b psql -U postgres -c "alter system set max_replication_slots = 10;"
-docker exec host-b psql -U postgres -c "alter system set wal_keep_size = '256MB';"
-```
+cat >> config/a/postgresql.conf <<'EOF'
 
-```
-alter system
-alter system
-alter system
-```
+synchronous_standby_names = 'standby_b'
+EOF
 
-### настроим pg_hba.conf
-
-``` 
-host    replication    replicator    0.0.0.0/0    password
-```
-
-### рестарт 
-```sh
-docker compose restart host-b
+docker compose restart host-a
 ```
 
 ```
 [+] restart 0/1
- ⠹ Container host-b Restarting
+ ⠸ Container host-a Restarting   
 ```
 
-### проверим что настройки применились
+### проверим на host-a, что standby_b работает в синхронном режиме
 
 ```sh
-docker exec host-b pg_isready -U postgres
-docker exec host-b psql -U postgres -c "SELECT pg_is_in_recovery();"
-docker exec host-b psql -U postgres -c "SHOW max_wal_senders;"
-docker exec host-b psql -U postgres -c "SHOW max_replication_slots;"
-docker exec host-b sh -c "grep -n 'replication.*replicator' /var/lib/postgresql/data/pg_hba.conf"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SHOW synchronous_standby_names;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT slot_name, active FROM pg_replication_slots;"
 ```
 
 ```
-/var/run/postgresql:5432 - accepting connections
-
- pg_is_in_recovery 
--------------------
- t
+synchronous_standby_names 
+---------------------------
+ standby_b
 (1 row)
 
- max_wal_senders 
------------------
- 10
+ application_name |   state   | sync_state 
+------------------+-----------+------------
+ standby_b        | streaming | sync
 (1 row)
 
- max_replication_slots 
------------------------
- 10
+ slot_name | active 
+-----------+--------
+ slot_b    | t
 (1 row)
-
-131:host    replication    replicator    0.0.0.0/0    password
 ```
 
 ### настройка host-с как асинхронной каскадной реплики host-b
@@ -537,17 +528,16 @@ drwxr-xr-x 5 rmb rmb 4096 May 21 16:21 ..
 docker run --rm -it \
   --network lab3_pgnet \
   -e PGPASSWORD=secret \
-  -v "$PWD/data/c:/var/lib/postgresql/data" \
+  -v "$PWD/data/b:/var/lib/postgresql/data" \
   postgres:16-alpine \
   pg_basebackup \
-    -h host-b \
-    -U replicator \
+    -d "host=host-a port=5432 user=replicator application_name=standby_b" \
     -D /var/lib/postgresql/data \
     -P \
     -R \
     --wal-method=stream \
     -C \
-    -S slot_c
+    -S slot_b
 ```
 
 ```
@@ -584,17 +574,6 @@ docker exec host-c psql -U postgres -c "alter system set recovery_min_apply_dela
 
 ```
 ALTER SYSTEM
-```
-
-### перезапуск
-
-```sh
-docker compose restart host-c
-```
-
-```
-[+] start 1/1
- ✔ Container host-c Started
 ```
 
 ### проверка применения
