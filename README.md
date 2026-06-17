@@ -1821,6 +1821,7 @@ docker exec -e PGPASSWORD=secret host-b psql -U postgres -c "SELECT application_
 (1 row)
 ```
 
+```
 host-a -> host-b -> host-c
 ```
 
