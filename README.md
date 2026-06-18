@@ -1431,7 +1431,7 @@ pgpool    bitnamilegacy/pgpool:latest   "/opt/bitnami/script…"   pgpool    6 h
 После остановки `host-b` повышаем `host-a` до primary.
 
 ```sh
-docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT pg_promote(true, 60);"
+docker exec -e PGPASSWORD=secret host-a psql -U postgres -c "SELECT pg_promote();"
 ```
 
 ```
