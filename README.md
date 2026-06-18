@@ -1062,7 +1062,7 @@ docker exec -it -e PGPASSWORD=secret client psql -h pgpool -p 5432 -U postgres -
 ```sql
 illgreennews=# SELECT 'session_1' AS session, pg_backend_pid(), inet_server_addr(), pg_is_in_recovery();
 ```
-
+```
   session  | pg_backend_pid | inet_server_addr | pg_is_in_recovery 
 -----------+----------------+------------------+-------------------
  session_1 |            777 | 172.19.0.5       | f
