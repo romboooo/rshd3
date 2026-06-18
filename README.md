@@ -361,7 +361,6 @@ docker run --rm -it \
     -D /var/lib/postgresql/data \
     -P \
     -R \
-    --wal-method=stream \
     -C \
     -S slot_b
 ```
@@ -553,7 +552,6 @@ docker run --rm -it \
     -D /var/lib/postgresql/data \
     -P \
     -R \
-    --wal-method=stream \
     -C \
     -S slot_c
 ```
