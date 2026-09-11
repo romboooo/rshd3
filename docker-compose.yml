@@ -75,6 +75,9 @@ services:
       PGPOOL_SR_CHECK_PERIOD: 5
       PGPOOL_ENABLE_WATCHDOG: "no"
       PGPOOL_FAILOVER_ON_BACKEND_ERROR: "yes"
+      PGPOOL_USER_CONF_FILE: /opt/bitnami/pgpool/custom/pgpool-custom.conf
+    volumes:
+      - ./config/pgpool:/opt/bitnami/pgpool/custom
     ports:
       - "5432:5432"
     networks:

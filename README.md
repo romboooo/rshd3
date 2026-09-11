@@ -666,7 +666,7 @@ slot_name | active
 
 ```
 host-a -> host-b (синхронный) 
-host-a -> host-c (асинхронный delay=10)
+host-b -> host-c (асинхронный delay=10)
 ```
 
 ### подключение pgpool
